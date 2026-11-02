@@ -60,7 +60,7 @@ Unknown languages remain plain text. Binary notices, symlink targets, and Git's 
 - `internal/diff/`: plain unified-diff parsing, snapshot matching, complete-file annotation mapping, and line/grapheme alignment with safe mapping fallbacks.
 - `internal/highlight/`: full-source Chroma tokenization and syntax foregrounds with a terminal-aware theme.
 - `internal/terminaltext/`: terminal-control sanitization, single-line escaping, and tab expansion.
-- `internal/tui/`: async composition of parsed diffs and highlighted snapshots into cached presentation, plus Bubble Tea state, input, and responsive rendering; no Git I/O or tokenization during rendering.
+- `internal/tui/`: async composition of parsed diffs and highlighted snapshots into cached presentation, plus Bubble Tea state, input, and responsive rendering; no Git I/O or tokenization during rendering. `model.go` coordinates navigation and async loading; `browser.go` owns the file-tree screen; `viewer.go` owns the diff/annotated-file screen and scrolling; `tree.go` is the tree component; `layout.go` shares header/body/footer layout and styles. Screen models handle their own input and return navigation requests to the root.
 
 The module is named `diffo` until a canonical repository URL is chosen.
 
