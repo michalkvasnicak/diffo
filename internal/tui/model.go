@@ -68,10 +68,10 @@ func (m *Model) loadFiles() tea.Cmd {
 	}
 }
 
-func (m *Model) openFile(index int, resetMode bool) tea.Cmd {
+func (m *Model) openFile(index int) tea.Cmd {
 	file := m.browser.files[index]
 	m.active = viewerScreen
-	m.viewer.open(index, file, resetMode)
+	m.viewer.open(index, file)
 	m.request++
 	request, repository, content := m.request, m.repository, m.content
 	return func() tea.Msg {
@@ -122,11 +122,11 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch request := navigation.(type) {
 	case openFileRequest:
-		return m, m.openFile(request.index, true)
+		return m, m.openFile(request.index)
 	case switchFileRequest:
 		index := m.viewer.index + request.delta
 		if index >= 0 && index < len(m.browser.files) {
-			return m, m.openFile(index, false)
+			return m, m.openFile(index)
 		}
 	case showBrowserRequest:
 		m.active = browserScreen

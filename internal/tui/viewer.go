@@ -15,18 +15,15 @@ type viewerModel struct {
 	loading      bool
 	err          error
 	diff         Content
-	fullContent  bool
+	fullContent  bool // View preference for this process; retained across file opens.
 	diffView     fileView
 	contentView  fileView
 	hunkTarget   int // Navigation anchor; reset by manual scrolling.
 	selectedHunk int // Stable hunk ID; retained while scrolling or resizing.
 }
 
-func (m *viewerModel) open(index int, file git.File, resetMode bool) {
+func (m *viewerModel) open(index int, file git.File) {
 	m.index, m.file = index, file
-	if resetMode {
-		m.fullContent = false
-	}
 	m.loading, m.err = true, nil
 	m.diff = Content{}
 	m.diffView, m.contentView = fileView{}, fileView{}
