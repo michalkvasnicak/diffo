@@ -29,16 +29,48 @@ type Line struct {
 	tokens []chroma.Token
 }
 
-// Render adds syntax foregrounds to a caller's presentation style.
-func (s *Service) Render(line Line, base lipgloss.Style) string {
+// Span applies presentation within terminal-safe source byte offsets, before
+// tabs expand. Callers supply sorted, non-overlapping spans.
+type Span struct {
+	Start int
+	End   int
+	Style lipgloss.Style
+}
+
+// Plain retains safe text when a source has no supported syntax lexer.
+func Plain(text string) Line {
+	return Line{tokens: []chroma.Token{{Type: chroma.Text, Value: terminaltext.Visible(text)}}}
+}
+
+// Render intersects presentation spans with cached tokens, preserving syntax
+// foregrounds even when a span changes in the middle of a token.
+func (s *Service) Render(line Line, base lipgloss.Style, spans ...Span) string {
 	var styled strings.Builder
+	offset, span := 0, 0
 	for _, token := range line.tokens {
-		style := base
-		colour := s.syntax.Get(token.Type).Colour
-		if colour.IsSet() {
-			style = style.Foreground(lipgloss.Color(colour.String()))
+		end := offset + len(token.Value)
+		for position := 0; offset < end; {
+			for span < len(spans) && spans[span].End <= offset {
+				span++
+			}
+			style, next := base, end
+			if span < len(spans) {
+				if spans[span].Start <= offset {
+					style = spans[span].Style.Inherit(base)
+					next = min(next, spans[span].End)
+				} else {
+					next = min(next, spans[span].Start)
+				}
+			}
+			colour := s.syntax.Get(token.Type).Colour
+			if colour.IsSet() {
+				style = style.Foreground(lipgloss.Color(colour.String()))
+			}
+			length := next - offset
+			styled.WriteString(style.Render(terminaltext.ExpandTabs(token.Value[position : position+length])))
+			position += length
+			offset = next
 		}
-		styled.WriteString(style.Render(terminaltext.ExpandTabs(token.Value)))
 	}
 	return styled.String()
 }

@@ -295,16 +295,16 @@ func (m *Model) View() string {
 	if m.inDiff {
 		mode := "DIFF · HEAD → current"
 		if m.fullContent {
-			mode = "FILE · current"
+			mode = "ANNOTATED FILE · current + deletions"
 			if len(m.files) > 0 && m.files[m.selection].Status == "D" {
-				mode = "FILE · HEAD"
+				mode = "ANNOTATED FILE · HEAD deletions"
 			}
 		}
 		header = mode
 		if len(m.files) > 0 {
 			header += " · " + m.files[m.selection].Status + " " + terminaltext.SingleLine(m.files[m.selection].Path)
 		}
-		help = "v diff/file · n/p hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
+		help = "v diff/annotated · n/p diff hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
 	}
 	lines := []string{ansi.Truncate(header, m.width, "…")}
 	if m.height == 1 {

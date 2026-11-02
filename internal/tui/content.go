@@ -35,8 +35,8 @@ func NewContentService(highlighter *highlight.Service) *ContentService {
 	}
 }
 
-// Prepare shares snapshot tokenization across both views. Only deleted files
-// select HEAD for full content; other files always select the current snapshot.
+// Prepare shares snapshot tokenization across both views. Annotated content
+// uses current tokens for replacements and HEAD tokens for standalone deletions.
 func (s *ContentService) Prepare(change git.Diff, file git.File) Content {
 	parsed := diff.Parse(change.Text,
 		diff.Snapshot{Text: change.Old.Text, Available: change.Old.Available},
@@ -58,13 +58,9 @@ func (s *ContentService) Prepare(change git.Diff, file git.File) Content {
 	if needsNew && change.New.Available {
 		newTokens = s.highlighter.Source(change.New.Path, change.New.Text)
 	}
-	snapshot, tokens := change.New, newTokens
-	if file.Status == "D" {
-		snapshot, tokens = change.Old, oldTokens
-	}
 	result := Content{
 		Lines: make([]string, len(parsed.Lines)),
-		Full:  s.fullContent(snapshot, tokens),
+		Full:  s.annotatedContent(parsed, change, file, oldTokens, newTokens),
 	}
 	for _, hunk := range parsed.Hunks {
 		result.Hunks = append(result.Hunks, hunk.Line)
@@ -94,6 +90,52 @@ func (s *ContentService) diffLine(line diff.Line, oldTokens, newTokens []highlig
 		return base.Render(terminaltext.Display(line.Text))
 	}
 	return base.Render(string(line.Kind)) + s.highlighter.Render(tokens[source], base)
+}
+
+func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, file git.File, oldTokens, newTokens []highlight.Line) []string {
+	snapshot, tokens := change.New, newTokens
+	if file.Status == "D" {
+		snapshot, tokens = change.Old, oldTokens
+	}
+	if !snapshot.Available || strings.ContainsRune(snapshot.Text, '\x00') {
+		return s.fullContent(snapshot, tokens)
+	}
+	old := diff.Snapshot{Text: change.Old.Text, Available: change.Old.Available}
+	current := diff.Snapshot{Text: change.New.Text, Available: change.New.Available}
+	// Git intentionally has no snapshot on the absent side of a file addition
+	// or deletion. Treat only those known absent sides as available empty text.
+	if file.Status == "A" || file.Status == "?" {
+		old.Available = true
+	}
+	if file.Status == "D" {
+		current.Available = true
+	}
+	lines, mapped := diff.Annotate(parsed, old, current)
+	if !mapped {
+		return append([]string{"Annotations unavailable; showing snapshot without change backgrounds."}, s.fullContent(snapshot, tokens)...)
+	}
+	if len(lines) == 0 {
+		return []string{"Empty file."}
+	}
+	result := make([]string, len(lines))
+	for i, line := range lines {
+		base := lipgloss.NewStyle()
+		sourceTokens, source := newTokens, line.New-1
+		if line.Deleted {
+			base = s.deleted
+			sourceTokens, source = oldTokens, line.Old-1
+		}
+		tokenLine := highlight.Plain(line.Text)
+		if source >= 0 && source < len(sourceTokens) {
+			tokenLine = sourceTokens[source]
+		}
+		spans := make([]highlight.Span, len(line.Added))
+		for j, added := range line.Added {
+			spans[j] = highlight.Span{Start: added.Start, End: added.End, Style: s.added}
+		}
+		result[i] = s.highlighter.Render(tokenLine, base, spans...)
+	}
+	return result
 }
 
 func (s *ContentService) fullContent(snapshot git.Snapshot, tokens []highlight.Line) []string {
