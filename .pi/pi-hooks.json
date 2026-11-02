@@ -1,0 +1,40 @@
+{
+  "agent_before_settle": {
+    "failFast": false,
+    "maxRetries": 5,
+    "checks": [
+      {
+        "name": "format",
+        "type": "command",
+        "command": "gofmt -w cmd internal",
+        "inputs": [
+          "**/*.go",
+          ".pi/pi-hooks.json"
+        ]
+      },
+      {
+        "name": "lint",
+        "type": "command",
+        "command": "go vet ./...",
+        "inputs": [
+          "**/*.go",
+          "go.mod",
+          "go.sum",
+          ".pi/pi-hooks.json"
+        ]
+      },
+      {
+        "name": "test",
+        "type": "command",
+        "command": "go test -race ./...",
+        "inputs": [
+          "**/*.go",
+          "**/testdata/**",
+          "go.mod",
+          "go.sum",
+          ".pi/pi-hooks.json"
+        ]
+      }
+    ]
+  }
+}
