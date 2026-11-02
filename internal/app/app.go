@@ -24,7 +24,7 @@ func Run() error {
 	}
 	model := tui.New(func() (*git.Repository, error) {
 		return git.Discover(directory)
-	}, highlight.New())
+	}, tui.NewContentService(highlight.New()))
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("run terminal UI: %w", err)

@@ -53,8 +53,10 @@ Unknown languages remain plain text. Binary notices, symlink targets, and Git's 
 - `cmd/diffo/`: executable entry point and process-level error handling.
 - `internal/app/`: terminal setup and dependency wiring.
 - `internal/git/`: repository discovery, final worktree change queries, and diff content.
-- `internal/highlight/`: full-snapshot Chroma tokenization, safe display text, and unified-diff syntax mapping.
-- `internal/tui/`: Bubble Tea state, input, and responsive rendering; no Git I/O or tokenization during rendering.
+- `internal/diff/`: plain unified-diff parsing, hunk coordinates, and snapshot matching with safe mapping fallbacks.
+- `internal/highlight/`: full-source Chroma tokenization and syntax foregrounds with a terminal-aware theme.
+- `internal/terminaltext/`: terminal-control sanitization, single-line escaping, and tab expansion.
+- `internal/tui/`: async composition of parsed diffs and highlighted snapshots into cached presentation, plus Bubble Tea state, input, and responsive rendering; no Git I/O or tokenization during rendering.
 
 The module is named `diffo` until a canonical repository URL is chosen.
 

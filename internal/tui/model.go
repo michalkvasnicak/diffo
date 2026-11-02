@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"diffo/internal/git"
-	"diffo/internal/highlight"
+	"diffo/internal/terminaltext"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,7 +26,7 @@ type filesLoaded struct {
 
 type diffLoaded struct {
 	request int
-	diff    highlight.Result
+	diff    Content
 	err     error
 }
 
@@ -36,7 +36,7 @@ type fileView struct {
 }
 
 type Model struct {
-	highlighter *highlight.Service
+	content     *ContentService
 	discover    func() (*git.Repository, error)
 	repository  *git.Repository
 	files       []git.File
@@ -47,7 +47,7 @@ type Model struct {
 	loading     bool
 	err         error
 	inDiff      bool
-	diff        highlight.Result
+	diff        Content
 	fullContent bool
 	diffView    fileView
 	contentView fileView
@@ -56,8 +56,8 @@ type Model struct {
 	request     int
 }
 
-func New(discover func() (*git.Repository, error), highlighter *highlight.Service) *Model {
-	return &Model{discover: discover, highlighter: highlighter, loading: true, hunkTarget: -1}
+func New(discover func() (*git.Repository, error), content *ContentService) *Model {
+	return &Model{discover: discover, content: content, loading: true, hunkTarget: -1}
 }
 
 func (m *Model) Init() tea.Cmd { return m.loadFiles() }
@@ -86,18 +86,18 @@ func (m *Model) open() tea.Cmd {
 		m.fullContent = false
 	}
 	m.inDiff, m.loading = true, true
-	m.diff, m.hunkRows = highlight.Result{}, nil
+	m.diff, m.hunkRows = Content{}, nil
 	m.diffView, m.contentView = fileView{}, fileView{}
 	m.err, m.hunkTarget = nil, -1
 	m.clamp()
 	m.request++
-	request, repository, file, highlighter := m.request, m.repository, m.files[m.selection], m.highlighter
+	request, repository, file, content := m.request, m.repository, m.files[m.selection], m.content
 	return func() tea.Msg {
 		diff, err := repository.Diff(file)
 		if err != nil {
 			return diffLoaded{request: request, err: err}
 		}
-		return diffLoaded{request: request, diff: highlighter.Lines(diff, file)}
+		return diffLoaded{request: request, diff: content.Prepare(diff, file)}
 	}
 }
 
@@ -248,10 +248,6 @@ func (m *Model) clamp() {
 	m.first = max(0, min(m.first, len(m.files)-m.bodyHeight()))
 }
 
-func singleLine(text string) string {
-	return strings.NewReplacer("\n", "\\n", "\t", "\\t").Replace(highlight.VisibleText(text))
-}
-
 func (m *Model) activeView() *fileView {
 	if m.fullContent {
 		return &m.contentView
@@ -261,7 +257,7 @@ func (m *Model) activeView() *fileView {
 
 func (m *Model) wrapViews() {
 	m.diffView.rows, m.hunkRows = wrapLines(m.diff.Lines, m.diff.Hunks, m.width)
-	m.contentView.rows, _ = wrapLines(m.diff.Content, nil, m.width)
+	m.contentView.rows, _ = wrapLines(m.diff.Full, nil, m.width)
 	m.clamp()
 }
 
@@ -306,7 +302,7 @@ func (m *Model) View() string {
 		}
 		header = mode
 		if len(m.files) > 0 {
-			header += " · " + m.files[m.selection].Status + " " + singleLine(m.files[m.selection].Path)
+			header += " · " + m.files[m.selection].Status + " " + terminaltext.SingleLine(m.files[m.selection].Path)
 		}
 		help = "v diff/file · n/p hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
 	}
@@ -319,7 +315,7 @@ func (m *Model) View() string {
 	case m.loading:
 		body = []string{"Loading…"}
 	case m.err != nil:
-		body = strings.Split(ansi.Hardwrap("Error: "+singleLine(m.err.Error())+" (r to retry)", m.width, true), "\n")
+		body = strings.Split(ansi.Hardwrap("Error: "+terminaltext.SingleLine(m.err.Error())+" (r to retry)", m.width, true), "\n")
 	case m.inDiff:
 		view := m.activeView()
 		if len(view.rows) == 0 {
@@ -332,9 +328,9 @@ func (m *Model) View() string {
 	default:
 		for i := m.first; i < min(len(m.files), m.first+m.bodyHeight()); i++ {
 			file := m.files[i]
-			path := singleLine(file.Path)
+			path := terminaltext.SingleLine(file.Path)
 			if file.OldPath != "" {
-				path += " ← " + singleLine(file.OldPath)
+				path += " ← " + terminaltext.SingleLine(file.OldPath)
 			}
 			marker := "  "
 			if i == m.selection {
