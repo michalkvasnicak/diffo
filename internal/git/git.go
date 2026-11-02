@@ -101,27 +101,61 @@ func (r *Repository) Files() ([]File, error) {
 	return files, nil
 }
 
-func (r *Repository) Diff(file File) (string, error) {
+// Snapshot is a complete file version. Unavailable snapshots leave the diff readable
+// when Git attributes, submodules, or concurrent filesystem changes prevent mapping.
+type Snapshot struct {
+	Path      string
+	Text      string
+	Available bool
+}
+
+type Diff struct {
+	Text string
+	Old  Snapshot
+	New  Snapshot
+}
+
+func (r *Repository) Diff(file File) (Diff, error) {
 	if file.Status == "?" {
-		return r.untrackedDiff(file.Path)
+		content, err := r.worktreeContent(file.Path)
+		if err != nil {
+			return Diff{}, err
+		}
+		return Diff{Text: untrackedDiff(file.Path, content), New: Snapshot{Path: file.Path, Text: string(content), Available: true}}, nil
 	}
 	base, err := r.base()
 	if err != nil {
-		return "", err
+		return Diff{}, err
 	}
 	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=short", base, "--", file.Path}
 	if file.OldPath != "" {
 		args = append(args, file.OldPath)
 	}
 	output, err := run(r.Root, args...)
-	return string(output), err
+	if err != nil {
+		return Diff{}, err
+	}
+	diff := Diff{Text: string(output)}
+	oldPath := file.OldPath
+	if oldPath == "" {
+		oldPath = file.Path
+	}
+	if file.Status != "A" {
+		content, readErr := run(r.Root, "cat-file", "blob", base+":"+oldPath)
+		diff.Old = Snapshot{Path: oldPath, Text: string(content), Available: readErr == nil}
+	}
+	if file.Status != "D" {
+		content, readErr := r.worktreeContent(file.Path)
+		diff.New = Snapshot{Path: file.Path, Text: string(content), Available: readErr == nil}
+	}
+	return diff, nil
 }
 
-func (r *Repository) untrackedDiff(path string) (string, error) {
+func (r *Repository) worktreeContent(path string) ([]byte, error) {
 	fullPath := filepath.Join(r.Root, path)
 	info, err := os.Lstat(fullPath)
 	if err != nil {
-		return "", fmt.Errorf("read %q: %w", path, err)
+		return nil, fmt.Errorf("read %q: %w", path, err)
 	}
 	var content []byte
 	if info.Mode()&os.ModeSymlink != 0 {
@@ -131,19 +165,23 @@ func (r *Repository) untrackedDiff(path string) (string, error) {
 	} else if info.Mode().IsRegular() {
 		content, err = os.ReadFile(fullPath)
 	} else {
-		return "", fmt.Errorf("cannot display %q: not a regular file or symlink", path)
+		return nil, fmt.Errorf("cannot display %q: not a regular file or symlink", path)
 	}
 	if err != nil {
-		return "", fmt.Errorf("read %q: %w", path, err)
+		return nil, fmt.Errorf("read %q: %w", path, err)
 	}
+	return content, nil
+}
+
+func untrackedDiff(path string, content []byte) string {
 	if bytes.ContainsRune(content, '\x00') {
-		return fmt.Sprintf("Binary file %q (untracked)\n", path), nil
+		return fmt.Sprintf("Binary file %q (untracked)\n", path)
 	}
 	var diff strings.Builder
 	fmt.Fprintf(&diff, "--- /dev/null\n+++ %q\n", "b/"+path)
 	if len(content) == 0 {
 		diff.WriteString("(empty untracked file)\n")
-		return diff.String(), nil
+		return diff.String()
 	}
 	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
 	fmt.Fprintf(&diff, "@@ -0,0 +1,%d @@\n", len(lines))
@@ -153,5 +191,5 @@ func (r *Repository) untrackedDiff(path string) (string, error) {
 	if content[len(content)-1] != '\n' {
 		diff.WriteString("\\ No newline at end of file\n")
 	}
-	return diff.String(), nil
+	return diff.String()
 }

@@ -4,9 +4,9 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"diffo/internal/git"
+	"diffo/internal/highlight"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,8 +14,6 @@ import (
 )
 
 var (
-	addition = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	deletion = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	muted    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	selected = lipgloss.NewStyle().Reverse(true)
 )
@@ -28,29 +26,30 @@ type filesLoaded struct {
 
 type diffLoaded struct {
 	request int
-	text    string
+	lines   []string
 	err     error
 }
 
 type Model struct {
-	discover   func() (*git.Repository, error)
-	repository *git.Repository
-	files      []git.File
-	selection  int
-	first      int
-	width      int
-	height     int
-	loading    bool
-	err        error
-	inDiff     bool
-	diff       string
-	rows       []string
-	offset     int
-	request    int
+	highlighter *highlight.Service
+	discover    func() (*git.Repository, error)
+	repository  *git.Repository
+	files       []git.File
+	selection   int
+	first       int
+	width       int
+	height      int
+	loading     bool
+	err         error
+	inDiff      bool
+	diff        []string
+	rows        []string
+	offset      int
+	request     int
 }
 
-func New(discover func() (*git.Repository, error)) *Model {
-	return &Model{discover: discover, loading: true}
+func New(discover func() (*git.Repository, error), highlighter *highlight.Service) *Model {
+	return &Model{discover: discover, highlighter: highlighter, loading: true}
 }
 
 func (m *Model) Init() tea.Cmd { return m.loadFiles() }
@@ -76,12 +75,15 @@ func (m *Model) open() tea.Cmd {
 		return nil
 	}
 	m.inDiff, m.loading = true, true
-	m.diff, m.rows, m.err, m.offset = "", nil, nil, 0
+	m.diff, m.rows, m.err, m.offset = nil, nil, nil, 0
 	m.request++
-	request, repository, file := m.request, m.repository, m.files[m.selection]
+	request, repository, file, highlighter := m.request, m.repository, m.files[m.selection], m.highlighter
 	return func() tea.Msg {
-		text, err := repository.Diff(file)
-		return diffLoaded{request: request, text: text, err: err}
+		diff, err := repository.Diff(file)
+		if err != nil {
+			return diffLoaded{request: request, err: err}
+		}
+		return diffLoaded{request: request, lines: highlighter.Lines(diff)}
 	}
 }
 
@@ -97,7 +99,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.request != m.request || !m.inDiff {
 			return m, nil
 		}
-		m.diff, m.err, m.loading = msg.text, msg.err, false
+		m.diff, m.err, m.loading = msg.lines, msg.err, false
 		m.wrapDiff()
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -174,47 +176,27 @@ func (m *Model) clamp() {
 	m.first = max(0, min(m.first, len(m.files)-m.bodyHeight()))
 }
 
-// visibleText prevents repository content and filenames from emitting terminal controls.
-func visibleText(text string) string {
-	return strings.Map(func(r rune) rune {
-		switch r {
-		case '\n':
-			return r
-		case '\t':
-			return r
-		default:
-			if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
-				return '\uFFFD'
-			}
-			return r
-		}
-	}, strings.ToValidUTF8(text, "\uFFFD"))
-}
-
 func singleLine(text string) string {
-	return strings.NewReplacer("\n", "\\n", "\t", "\\t").Replace(visibleText(text))
+	return strings.NewReplacer("\n", "\\n", "\t", "\\t").Replace(highlight.VisibleText(text))
 }
 
 func (m *Model) wrapDiff() {
 	m.rows = nil
-	if m.width < 1 || m.diff == "" {
+	if m.width < 1 || len(m.diff) == 0 {
 		m.clamp()
 		return
 	}
-	text := strings.ReplaceAll(visibleText(m.diff), "\t", "    ")
-	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-		for _, row := range strings.Split(ansi.Hardwrap(line, m.width, true), "\n") {
+	for _, line := range m.diff {
+		// Wrap plain graphemes first, then cut the trusted ANSI line at those
+		// cell boundaries. Cut retains SGR state, so each viewport row stands
+		// alone even when scrolling starts in the middle of a styled token.
+		column := 0
+		for _, plain := range strings.Split(ansi.Hardwrap(ansi.Strip(line), m.width, true), "\n") {
+			width := ansi.StringWidth(plain)
+			row := ansi.Cut(line, column, column+width)
 			// A single wide grapheme may not fit a one-cell terminal.
-			row = ansi.Truncate(row, m.width, "")
-			switch {
-			case strings.HasPrefix(line, "+"):
-				row = addition.Render(row)
-			case strings.HasPrefix(line, "-"):
-				row = deletion.Render(row)
-			case strings.HasPrefix(line, "@@"):
-				row = muted.Render(row)
-			}
-			m.rows = append(m.rows, row)
+			m.rows = append(m.rows, ansi.Truncate(row, m.width, ""))
+			column += width
 		}
 	}
 	m.clamp()

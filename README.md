@@ -33,16 +33,23 @@ Select a file to read its unified diff. Deleted files show removed content, untr
 | `r` | Refresh file list (also returns from diff) |
 | `q`, `Ctrl+c` | Quit |
 
-Mouse wheel scrolls; clicking a file opens it when supported by the terminal. Headers and file rows truncate to terminal width; diffs wrap at terminal-cell boundaries and scroll vertically. Addition/deletion colors supplement the `+` / `-` markers. Git queries run asynchronously with loading, empty, and error states.
+Mouse wheel scrolls; clicking a file opens it when supported by the terminal. Headers and file rows truncate to terminal width; diffs wrap at terminal-cell boundaries and scroll vertically. Chroma syntax foregrounds are preserved over subtle addition/deletion backgrounds, alongside the `+` / `-` markers. Colors follow terminal capabilities and respect `NO_COLOR`. Git queries and syntax highlighting run asynchronously with loading, empty, and error states. Resizing rewraps the cached highlighted lines.
 
-This is a snapshot browser, not a live watcher: refresh after external changes. Git's index still determines which files are tracked: after `git rm --cached`, a remaining or recreated file can appear twice, as a deletion and as an untracked file, even if its contents match HEAD. Open the `?` row to read its current contents. Diffs are loaded when opened, so a file changed since the list was loaded may show no diff or an error; refresh to reconcile the list. Files and diffs are held in memory, so very large changes may be slow. Terminal controls in content are replaced for safe display and tabs expand to four spaces. There is no syntax highlighting, editing, staging, or branch comparison. Git's own attributes and diff configuration still influence how it represents files; external diff tools and text-conversion commands are disabled.
+This is a snapshot browser, not a live watcher: refresh after external changes. Git's index still determines which files are tracked: after `git rm --cached`, a remaining or recreated file can appear twice, as a deletion and as an untracked file, even if its contents match HEAD. Open the `?` row to read its current contents. Diffs are loaded when opened, so a file changed since the list was loaded may show no diff or an error; refresh to reconcile the list. Files and diffs are held in memory, so very large changes may be slow. Terminal controls in content are replaced for safe display and tabs expand to four spaces. There is no editing, staging, or branch comparison. Git's own attributes and diff configuration still influence how it represents files; external diff tools and text-conversion commands are disabled.
+
+## Syntax highlighting
+
+Syntax is selected by filename using Chroma's pure-Go lexers and a light/dark terminal palette. Complete HEAD and working-tree snapshots are tokenized before mapping to hunk line numbers, preserving multiline comments and strings even when they begin outside a hunk. Deleted lines use HEAD and its old filename; added and context lines use the current file. Added, untracked, deleted, and renamed files are supported. Diff headers and hunk metadata remain separate from source syntax.
+
+Unknown languages remain plain text. Binary notices, symlink targets, and Git's custom diff representations remain readable. If a hunk does not exactly match the snapshots (for example due to attributes, line-ending conversion, or concurrent edits), its syntax highlighting is skipped rather than styling the wrong source. Multi-patch responses also fall back to plain diff styling. Very large files require full-file tokenization and may take time and memory.
 
 ## Structure
 
 - `cmd/diffo/`: executable entry point and process-level error handling.
 - `internal/app/`: terminal setup and dependency wiring.
 - `internal/git/`: repository discovery, final worktree change queries, and diff content.
-- `internal/tui/`: Bubble Tea state, input, and responsive rendering; no Git I/O during rendering.
+- `internal/highlight/`: full-snapshot Chroma tokenization, safe display text, and unified-diff syntax mapping.
+- `internal/tui/`: Bubble Tea state, input, and responsive rendering; no Git I/O or tokenization during rendering.
 
 The module is named `diffo` until a canonical repository URL is chosen.
 

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"diffo/internal/git"
+	"diffo/internal/highlight"
 	"diffo/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,7 +24,7 @@ func Run() error {
 	}
 	model := tui.New(func() (*git.Repository, error) {
 		return git.Discover(directory)
-	})
+	}, highlight.New())
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("run terminal UI: %w", err)
