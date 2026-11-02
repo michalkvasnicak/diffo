@@ -17,7 +17,7 @@ go build -o bin/diffo ./cmd/diffo
 go install ./cmd/diffo
 ```
 
-The full-screen file picker shows **`git diff HEAD` changes**, plus non-ignored untracked files. Staged and unstaged changes are not separate groups: staged edits canceled by working-tree edits do not appear. Repositories without commits compare against an empty tree; diffo ensures that harmless tree object exists in Git's object database without modifying the index or working files.
+The full-screen file tree shows **`git diff HEAD` changes**, plus non-ignored untracked files. Directories appear before files and start expanded. Collapse or expand them with `h`/`l` or the left/right arrows; `Enter` or a mouse click toggles a directory or opens a file. Each directory shows its descendant changed-file count and aggregate status badges. Files show colored status letters, and renamed files include their old path. Expansion state is retained on refresh for directories that remain in the tree. Staged and unstaged changes are not separate groups: staged edits canceled by working-tree edits do not appear. Repositories without commits compare against an empty tree; diffo ensures that harmless tree object exists in Git's object database without modifying the index or working files.
 
 Select a file to read its unified diff, then press `v` to toggle the **annotated full file**. This view includes every current working-tree line, plus standalone deleted lines inline at their original boundaries. There are no line numbers or `+` / `-` / `~` prefixes. Unchanged characters have no background; additions have a green background. Replacements show only the new text, highlighting only added or changed graphemes, not the entire line or unchanged token portions (`count = 10` → `count = 20` highlights only `2`; `foobar` → `foo` shows just `foo`, uncolored). Deletion-only blocks retain the old text with a red background. Entire added/untracked files are green; entire deleted files show HEAD in red (using the old path when present). The header labels the annotated mode and source. Empty files, binary files, and unavailable snapshots show readable notices; an unavailable current snapshot never silently falls back to HEAD. Deleted diffs show removed content, untracked text diffs show additions, and binary changes show a notice rather than binary data. Renames detected by Git appear with their old path. Status letters include `M` modified, `A` added, `D` deleted, `R` renamed, `T` type changed, and `?` untracked.
 
@@ -25,12 +25,14 @@ Select a file to read its unified diff, then press `v` to toggle the **annotated
 
 | Key | Action |
 | --- | --- |
-| `j` / `k`, arrow keys | Select files or scroll content |
+| `j` / `k`, up/down arrows | Select tree rows or scroll content |
 | `v` | Toggle unified diff / annotated full file |
 | `n` / `p` | Next / previous hunk in diff (no wraparound) |
 | `N` / `P`, Tab / Shift+Tab | Next / previous changed file in either view (no wraparound) |
-| `Enter`, `l`, right arrow | Open selected file |
-| `h`, `Esc`, left arrow | Return to file picker |
+| `Enter` | Toggle selected directory or open selected file |
+| `l`, right arrow | Expand directory, enter expanded directory, or open file |
+| `h`, left arrow | Collapse directory or select parent; return from content to tree |
+| `Esc` | Return from content to tree |
 | `PageDown` / `PageUp`, `Ctrl+f` / `Ctrl+b` | Move one page |
 | `g` / `G`, Home / End | Go to start / end |
 | `r` | Refresh file list (also returns from diff) |
@@ -38,7 +40,7 @@ Select a file to read its unified diff, then press `v` to toggle the **annotated
 
 In the diff, hunk jumps select the first header strictly below / above the viewport top. Near the end, scrolling stops at the bottom but subsequent jumps advance from the last targeted hunk, so closely spaced final hunks remain navigable. Scrolling manually or resizing resets that target. No hunks means no jump; reaching either hunk or file boundary does nothing. Hunk jumps do nothing in full-file mode. Toggling the same file preserves separate diff and full-file scroll positions, clamped to the available rows when resizing. Switching files retains the view mode but resets both scroll positions, and also works while loading or after an error. Returning to the picker keeps the current file selected and visible; opening from the picker always starts in diff mode. Toggling during loading records the desired mode.
 
-Mouse wheel scrolls; clicking a file opens it when supported by the terminal. Headers and file rows truncate to terminal width; both content views wrap at terminal-cell boundaries and scroll vertically. Chroma syntax foregrounds are preserved over subtle addition/deletion backgrounds, including within a syntax token. Unified diff keeps its existing whole-line backgrounds and `+` / `-` markers. Colors follow terminal capabilities and respect `NO_COLOR`. Git queries, syntax highlighting, and annotation alignment run asynchronously with loading, empty, and error states. Both views reuse the same loaded snapshots and syntax tokens; toggling does not requery Git or retokenize, and resizing only rewraps cached highlighted lines.
+Mouse wheel scrolls; clicking a file opens it and clicking a directory toggles it when supported by the terminal. Headers and file rows truncate to terminal width; both content views wrap at terminal-cell boundaries and scroll vertically. Chroma syntax foregrounds are preserved over subtle addition/deletion backgrounds, including within a syntax token. Unified diff keeps its existing whole-line backgrounds and `+` / `-` markers. Colors follow terminal capabilities and respect `NO_COLOR`. Git queries, syntax highlighting, and annotation alignment run asynchronously with loading, empty, and error states. Both views reuse the same loaded snapshots and syntax tokens; toggling does not requery Git or retokenize, and resizing only rewraps cached highlighted lines.
 
 Annotation alignment treats a contiguous removed/added block as a replacement. Exact matching lines anchor the alignment; between anchors, old and new lines pair in order. Each paired line is compared by grapheme, preserving unchanged portions without backgrounds. Extra new lines are green; all old text in a replacement disappears, including extra old lines and deleted character portions. Only blocks with no added lines remain red. Alignment is deterministic, not a semantic understanding of moved or rewritten code: ambiguous/reordered lines can pair differently than a human would choose. Newline-at-EOF changes and empty lines have no characters to color. Alignment operates on edit-block line IDs and paired-line graphemes, not an entire-file character comparison; pathological large replacement blocks or very long rewritten lines can still be expensive.
 

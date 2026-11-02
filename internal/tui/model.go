@@ -41,7 +41,7 @@ type Model struct {
 	repository  *git.Repository
 	files       []git.File
 	selection   int
-	first       int
+	tree        fileTree
 	width       int
 	height      int
 	loading     bool
@@ -110,6 +110,7 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case filesLoaded:
 		m.repository, m.files, m.err, m.loading = msg.repository, msg.files, msg.err, false
 		m.selection = min(m.selection, max(0, len(m.files)-1))
+		m.tree.rebuild(m.files)
 	case diffLoaded:
 		if msg.request != m.request || !m.inDiff {
 			return m, nil
@@ -124,6 +125,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inDiff {
 				m.inDiff, m.loading, m.err = false, false, nil
 				m.request++
+				m.tree.selectFile(m.selection)
+			} else if msg.String() != "esc" {
+				m.tree.collapse()
 			}
 		case "r":
 			if !m.loading || m.inDiff {
@@ -153,12 +157,14 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgup", "ctrl+b":
 			m.move(-m.bodyHeight())
 		case "g", "home":
-			m.move(-max(len(m.activeView().rows), len(m.files)))
+			m.move(-max(len(m.activeView().rows), len(m.tree.rows)))
 		case "G", "end":
-			m.move(max(len(m.activeView().rows), len(m.files)))
+			m.move(max(len(m.activeView().rows), len(m.tree.rows)))
 		case "enter", "l", "right":
 			if !m.inDiff {
-				return m, m.open()
+				cmd := m.activateTree(msg.String() != "right" && msg.String() != "l")
+				m.clamp()
+				return m, cmd
 			}
 		}
 	case tea.MouseMsg:
@@ -169,16 +175,39 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.move(3)
 		case tea.MouseButtonLeft:
 			if msg.Action == tea.MouseActionPress && !m.inDiff && !m.loading && m.err == nil && msg.Y >= 1 && msg.Y < m.height-1 {
-				index := m.first + msg.Y - 1
-				if index < len(m.files) {
-					m.selection = index
-					return m, m.open()
+				index := m.tree.first + msg.Y - 1
+				if index < len(m.tree.rows) {
+					m.tree.selection = index
+					cmd := m.activateTree(true)
+					m.clamp()
+					return m, cmd
 				}
 			}
 		}
 	}
 	m.clamp()
 	return m, nil
+}
+
+func (m *Model) activateTree(toggle bool) tea.Cmd {
+	if m.loading || m.err != nil {
+		return nil
+	}
+	node := m.tree.selectedNode()
+	if node == nil {
+		return nil
+	}
+	if node.file >= 0 {
+		m.selection = node.file
+		return m.open()
+	}
+	if toggle || node.collapsed {
+		node.collapsed = !node.collapsed
+		m.tree.flatten()
+	} else {
+		m.tree.selection++
+	}
+	return nil
 }
 
 func (m *Model) bodyHeight() int { return max(0, m.height-2) }
@@ -188,7 +217,7 @@ func (m *Model) move(delta int) {
 		m.hunkTarget = -1
 		m.activeView().offset += delta
 	} else {
-		m.selection += delta
+		m.tree.selection += delta
 	}
 	m.clamp()
 }
@@ -239,13 +268,7 @@ func (m *Model) clamp() {
 	for _, view := range []*fileView{&m.diffView, &m.contentView} {
 		view.offset = max(0, min(view.offset, len(view.rows)-m.bodyHeight()))
 	}
-	if m.selection < m.first {
-		m.first = m.selection
-	}
-	if m.selection >= m.first+m.bodyHeight() {
-		m.first = max(0, m.selection-m.bodyHeight()+1)
-	}
-	m.first = max(0, min(m.first, len(m.files)-m.bodyHeight()))
+	m.tree.clamp(m.bodyHeight())
 }
 
 func (m *Model) activeView() *fileView {
@@ -291,7 +314,7 @@ func (m *Model) View() string {
 		return ""
 	}
 	header := fmt.Sprintf("diffo · HEAD → worktree · %d files", len(m.files))
-	help := "j/k move · enter open · r refresh · q quit"
+	help := "j/k move · h/l collapse/expand · enter toggle/open · r refresh · q quit"
 	if m.inDiff {
 		mode := "DIFF · HEAD → current"
 		if m.fullContent {
@@ -326,22 +349,7 @@ func (m *Model) View() string {
 	case len(m.files) == 0:
 		body = []string{"No changes. r refreshes."}
 	default:
-		for i := m.first; i < min(len(m.files), m.first+m.bodyHeight()); i++ {
-			file := m.files[i]
-			path := terminaltext.SingleLine(file.Path)
-			if file.OldPath != "" {
-				path += " ← " + terminaltext.SingleLine(file.OldPath)
-			}
-			marker := "  "
-			if i == m.selection {
-				marker = "> "
-			}
-			row := ansi.Truncate(marker+file.Status+" "+path, m.width, "…")
-			if i == m.selection {
-				row = selected.Render(row)
-			}
-			body = append(body, row)
-		}
+		body = m.tree.render(m.files, m.width, m.bodyHeight())
 	}
 	for i := 0; i < m.bodyHeight(); i++ {
 		row := ""
