@@ -313,7 +313,7 @@ func (m *Model) View() string {
 	if m.width < 1 || m.height < 1 {
 		return ""
 	}
-	header := fmt.Sprintf("diffo · HEAD → worktree · %d files", len(m.files))
+	header := fmt.Sprintf("HEAD → worktree · %d files", len(m.files))
 	help := "j/k move · h/l collapse/expand · enter toggle/open · r refresh · q quit"
 	if m.inDiff {
 		mode := "DIFF · HEAD → current"
