@@ -21,7 +21,8 @@ type AnnotatedLine struct {
 	Text    string
 	Old     int
 	New     int
-	Added   []Range
+	Added   []Range // Inserted graphemes, including within an existing line.
+	Changed []Range // Inserted graphemes replacing deleted text.
 	Deleted bool
 }
 
@@ -141,7 +142,7 @@ func annotateBlock(removed, added []Line) []AnnotatedLine {
 		for i := newStart; i < new; i++ {
 			paired := oldStart + i - newStart
 			if paired < old {
-				result[i].Added = changedGraphemes(oldText[paired], newText[i])
+				result[i].Added, result[i].Changed = changedGraphemes(oldText[paired], newText[i])
 			} else if len(newText[i]) > 0 {
 				result[i].Added = []Range{{Start: 0, End: len(newText[i])}}
 			}
@@ -181,7 +182,9 @@ func sequenceDiff(old, new []string) []diffmatchpatch.Diff {
 	return engine.DiffMainRunes(oldIDs, newIDs, false)
 }
 
-func changedGraphemes(old, new string) []Range {
+// Each uninterrupted edit group is a replacement only when it both removes
+// and inserts text. Insertions separated from removals by equal text stay added.
+func changedGraphemes(old, new string) (added, changed []Range) {
 	split := func(text string) []string {
 		var parts []string
 		graphemes := uniseg.NewGraphemes(text)
@@ -191,20 +194,35 @@ func changedGraphemes(old, new string) []Range {
 		return parts
 	}
 	oldParts, newParts := split(old), split(new)
-	var ranges []Range
-	part, offset := 0, 0
+	part, offset, start := 0, 0, 0
+	removed := false
+	flush := func() {
+		if offset > start {
+			span := Range{Start: start, End: offset}
+			if removed {
+				changed = append(changed, span)
+			} else {
+				added = append(added, span)
+			}
+		}
+		start, removed = offset, false
+	}
 	for _, edit := range sequenceDiff(oldParts, newParts) {
 		if edit.Type == diffmatchpatch.DiffDelete {
+			removed = true
 			continue
 		}
-		start := offset
+		if edit.Type == diffmatchpatch.DiffEqual {
+			flush()
+		}
 		for range utf8.RuneCountInString(edit.Text) {
 			offset += len(newParts[part])
 			part++
 		}
-		if edit.Type == diffmatchpatch.DiffInsert {
-			ranges = append(ranges, Range{Start: start, End: offset})
+		if edit.Type == diffmatchpatch.DiffEqual {
+			start = offset
 		}
 	}
-	return ranges
+	flush()
+	return added, changed
 }

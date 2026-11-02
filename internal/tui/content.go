@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"diffo/internal/diff"
@@ -22,6 +23,7 @@ type Content struct {
 type ContentService struct {
 	highlighter *highlight.Service
 	added       lipgloss.Style
+	changed     lipgloss.Style
 	deleted     lipgloss.Style
 	metadata    lipgloss.Style
 }
@@ -30,6 +32,7 @@ func NewContentService(highlighter *highlight.Service) *ContentService {
 	return &ContentService{
 		highlighter: highlighter,
 		added:       lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#ddf4df", Dark: "#173524"}),
+		changed:     lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#ffdfb5", Dark: "#4a3018"}),
 		deleted:     lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#ffebe9", Dark: "#442329"}),
 		metadata:    lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 	}
@@ -129,10 +132,14 @@ func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, f
 		if source >= 0 && source < len(sourceTokens) {
 			tokenLine = sourceTokens[source]
 		}
-		spans := make([]highlight.Span, len(line.Added))
-		for j, added := range line.Added {
-			spans[j] = highlight.Span{Start: added.Start, End: added.End, Style: s.added}
+		spans := make([]highlight.Span, 0, len(line.Added)+len(line.Changed))
+		for _, added := range line.Added {
+			spans = append(spans, highlight.Span{Start: added.Start, End: added.End, Style: s.added})
 		}
+		for _, changed := range line.Changed {
+			spans = append(spans, highlight.Span{Start: changed.Start, End: changed.End, Style: s.changed})
+		}
+		sort.Slice(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
 		result[i] = s.highlighter.Render(tokenLine, base, spans...)
 	}
 	return result
