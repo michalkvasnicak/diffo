@@ -1,4 +1,4 @@
-// Package highlight maps full-file syntax tokens onto unified diff coordinates.
+// Package highlight styles full-file content and maps syntax onto unified diff coordinates.
 package highlight
 
 import (
@@ -70,18 +70,17 @@ func sourceLines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
-// Result contains independently styled lines with trusted ANSI and the zero-based
-// line positions of hunk headers parsed from the original diff.
+// Result contains trusted ANSI lines for the diff and selected full-file snapshot.
+// Hunks holds zero-based header positions in Lines, never in Content.
 type Result struct {
-	Lines []string
-	Hunks []int
+	Lines   []string
+	Hunks   []int
+	Content []string
 }
 
-// Lines performs all tokenization and styling before the TUI wraps or renders.
-func (s *Service) Lines(diff git.Diff) Result {
-	if diff.Text == "" {
-		return Result{}
-	}
+// Lines prepares both views before the TUI wraps or renders, sharing snapshot tokens.
+// Only deleted files select HEAD for full content; all other files select the worktree.
+func (s *Service) Lines(diff git.Diff, file git.File) Result {
 	lines := sourceLines(diff.Text)
 	parsed := make([]diffLine, len(lines))
 	oldLines, newLines := sourceLines(diff.Old.Text), sourceLines(diff.New.Text)
@@ -160,12 +159,17 @@ func (s *Service) Lines(diff git.Diff) Result {
 		}
 	}
 	var oldTokens, newTokens [][]chroma.Token
-	if needsOld {
+	if needsOld || file.Status == "D" {
 		oldTokens = tokenize(diff.Old)
 	}
-	if needsNew {
+	if needsNew || file.Status != "D" {
 		newTokens = tokenize(diff.New)
 	}
+	snapshot, contentTokens := diff.New, newTokens
+	if file.Status == "D" {
+		snapshot, contentTokens = diff.Old, oldTokens
+	}
+	content := s.content(snapshot, contentTokens)
 	result := make([]string, len(parsed))
 	for i, line := range parsed {
 		base := lipgloss.NewStyle()
@@ -188,17 +192,43 @@ func (s *Service) Lines(diff git.Diff) Result {
 		}
 		var styled strings.Builder
 		styled.WriteString(base.Render(string(line.kind)))
-		for _, token := range tokens[line.source] {
-			style := base
-			colour := s.syntax.Get(token.Type).Colour
-			if colour.IsSet() {
-				style = style.Foreground(lipgloss.Color(colour.String()))
-			}
-			styled.WriteString(style.Render(strings.ReplaceAll(token.Value, "\t", "    ")))
-		}
+		styled.WriteString(s.styleTokens(base, tokens[line.source]))
 		result[i] = styled.String()
 	}
-	return Result{Lines: result, Hunks: hunks}
+	return Result{Lines: result, Hunks: hunks, Content: content}
+}
+
+func (s *Service) content(snapshot git.Snapshot, tokens [][]chroma.Token) []string {
+	switch {
+	case !snapshot.Available:
+		return []string{"File content unavailable for this snapshot."}
+	case strings.ContainsRune(snapshot.Text, '\x00'):
+		return []string{"Binary file; content is not displayed."}
+	case snapshot.Text == "":
+		return []string{"Empty file."}
+	}
+	lines := sourceLines(snapshot.Text)
+	for i, line := range lines {
+		if i < len(tokens) {
+			lines[i] = s.styleTokens(lipgloss.NewStyle(), tokens[i])
+		} else {
+			lines[i] = displayText(line)
+		}
+	}
+	return lines
+}
+
+func (s *Service) styleTokens(base lipgloss.Style, tokens []chroma.Token) string {
+	var styled strings.Builder
+	for _, token := range tokens {
+		style := base
+		colour := s.syntax.Get(token.Type).Colour
+		if colour.IsSet() {
+			style = style.Foreground(lipgloss.Color(colour.String()))
+		}
+		styled.WriteString(style.Render(strings.ReplaceAll(token.Value, "\t", "    ")))
+	}
+	return styled.String()
 }
 
 func coordinate(start, count string) (int, int, bool) {
