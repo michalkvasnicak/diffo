@@ -13,11 +13,13 @@ import (
 )
 
 // Content holds trusted ANSI lines prepared once per file, before wrapping.
-// Hunks contains zero-based header positions in Lines, never in Full.
+// Hunks contains zero-based header positions in Lines; FullHunks contains
+// the first displayed edit line for each mapped hunk in Full.
 type Content struct {
-	Lines []string
-	Hunks []int
-	Full  []string
+	Lines     []string
+	Hunks     []int
+	Full      []string
+	FullHunks []int
 }
 
 type ContentService struct {
@@ -61,10 +63,8 @@ func (s *ContentService) Prepare(change git.Diff, file git.File) Content {
 	if needsNew && change.New.Available {
 		newTokens = s.highlighter.Source(change.New.Path, change.New.Text)
 	}
-	result := Content{
-		Lines: make([]string, len(parsed.Lines)),
-		Full:  s.annotatedContent(parsed, change, file, oldTokens, newTokens),
-	}
+	result := Content{Lines: make([]string, len(parsed.Lines))}
+	result.Full, result.FullHunks = s.annotatedContent(parsed, change, file, oldTokens, newTokens)
 	for _, hunk := range parsed.Hunks {
 		result.Hunks = append(result.Hunks, hunk.Line)
 	}
@@ -95,13 +95,13 @@ func (s *ContentService) diffLine(line diff.Line, oldTokens, newTokens []highlig
 	return base.Render(string(line.Kind)) + s.highlighter.Render(tokens[source], base)
 }
 
-func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, file git.File, oldTokens, newTokens []highlight.Line) []string {
+func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, file git.File, oldTokens, newTokens []highlight.Line) ([]string, []int) {
 	snapshot, tokens := change.New, newTokens
 	if file.Status == "D" {
 		snapshot, tokens = change.Old, oldTokens
 	}
 	if !snapshot.Available || strings.ContainsRune(snapshot.Text, '\x00') {
-		return s.fullContent(snapshot, tokens)
+		return s.fullContent(snapshot, tokens), nil
 	}
 	old := diff.Snapshot{Text: change.Old.Text, Available: change.Old.Available}
 	current := diff.Snapshot{Text: change.New.Text, Available: change.New.Available}
@@ -115,13 +115,17 @@ func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, f
 	}
 	lines, mapped := diff.Annotate(parsed, old, current)
 	if !mapped {
-		return append([]string{"Annotations unavailable; showing snapshot without change backgrounds."}, s.fullContent(snapshot, tokens)...)
+		return append([]string{"Annotations unavailable; showing snapshot without change backgrounds."}, s.fullContent(snapshot, tokens)...), nil
 	}
 	if len(lines) == 0 {
-		return []string{"Empty file."}
+		return []string{"Empty file."}, nil
 	}
 	result := make([]string, len(lines))
+	var hunks []int
 	for i, line := range lines {
+		if line.HunkStart {
+			hunks = append(hunks, i)
+		}
 		base := lipgloss.NewStyle()
 		sourceTokens, source := newTokens, line.New-1
 		if line.Deleted {
@@ -142,7 +146,7 @@ func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, f
 		sort.Slice(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
 		result[i] = s.highlighter.Render(tokenLine, base, spans...)
 	}
-	return result
+	return result, hunks
 }
 
 func (s *ContentService) fullContent(snapshot git.Snapshot, tokens []highlight.Line) []string {

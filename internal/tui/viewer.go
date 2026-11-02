@@ -12,6 +12,7 @@ import (
 
 type fileView struct {
 	rows   []string
+	hunks  []int
 	offset int
 }
 
@@ -26,7 +27,6 @@ type viewerModel struct {
 	fullContent bool
 	diffView    fileView
 	contentView fileView
-	hunkRows    []int
 	hunkTarget  int
 }
 
@@ -36,7 +36,7 @@ func (m *viewerModel) open(index int, file git.File, resetMode bool) {
 		m.fullContent = false
 	}
 	m.loading, m.err = true, nil
-	m.diff, m.hunkRows = Content{}, nil
+	m.diff = Content{}
 	m.diffView, m.contentView = fileView{}, fileView{}
 	m.hunkTarget = -1
 }
@@ -101,27 +101,28 @@ func (m *viewerModel) move(delta int) {
 }
 
 func (m *viewerModel) jumpHunk(direction int) {
-	if m.fullContent || m.loading || m.err != nil || len(m.hunkRows) == 0 {
+	view := m.activeView()
+	if m.loading || m.err != nil || len(view.hunks) == 0 {
 		return
 	}
-	top := m.diffView.offset
+	top := view.offset
 	// At EOF several hunks can share a clamped scroll offset. Remember the
-	// requested header so repeated jumps still advance, and reversing goes back.
+	// requested target so repeated jumps still advance, and reversing goes back.
 	if m.hunkTarget >= 0 {
-		top = max(top, m.hunkRows[m.hunkTarget])
+		top = max(top, view.hunks[m.hunkTarget])
 	}
 	if direction > 0 {
-		for i, row := range m.hunkRows {
+		for i, row := range view.hunks {
 			if row > top {
-				m.hunkTarget, m.diffView.offset = i, row
+				m.hunkTarget, view.offset = i, row
 				m.clamp()
 				return
 			}
 		}
 	} else {
-		for i := len(m.hunkRows) - 1; i >= 0; i-- {
-			if m.hunkRows[i] < top {
-				m.hunkTarget, m.diffView.offset = i, m.hunkRows[i]
+		for i := len(view.hunks) - 1; i >= 0; i-- {
+			if view.hunks[i] < top {
+				m.hunkTarget, view.offset = i, view.hunks[i]
 				m.clamp()
 				return
 			}
@@ -143,8 +144,8 @@ func (m *viewerModel) activeView() *fileView {
 }
 
 func (m *viewerModel) wrapViews() {
-	m.diffView.rows, m.hunkRows = wrapLines(m.diff.Lines, m.diff.Hunks, m.layout.width)
-	m.contentView.rows, _ = wrapLines(m.diff.Full, nil, m.layout.width)
+	m.diffView.rows, m.diffView.hunks = wrapLines(m.diff.Lines, m.diff.Hunks, m.layout.width)
+	m.contentView.rows, m.contentView.hunks = wrapLines(m.diff.Full, m.diff.FullHunks, m.layout.width)
 	m.clamp()
 }
 
@@ -185,7 +186,7 @@ func (m *viewerModel) view() string {
 		}
 	}
 	header += " · " + m.file.Status + " " + terminaltext.SingleLine(m.file.Path)
-	help := "v diff/annotated · n/p diff hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
+	help := "v diff/annotated · n/p hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
 	var body []string
 	switch {
 	case m.loading:

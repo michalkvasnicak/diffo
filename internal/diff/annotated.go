@@ -18,12 +18,13 @@ type Range struct {
 }
 
 type AnnotatedLine struct {
-	Text    string
-	Old     int
-	New     int
-	Added   []Range // Inserted graphemes, including within an existing line.
-	Changed []Range // Inserted graphemes replacing deleted text.
-	Deleted bool
+	Text      string
+	Old       int
+	New       int
+	Added     []Range // Inserted graphemes, including within an existing line.
+	Changed   []Range // Inserted graphemes replacing deleted text.
+	Deleted   bool
+	HunkStart bool // First displayed edit line of a mapped hunk.
 }
 
 // Annotate includes the complete new snapshot and deletion-only blocks from the
@@ -63,8 +64,14 @@ func Annotate(parsed Result, oldSnapshot, newSnapshot Snapshot) ([]AnnotatedLine
 		}
 		oldEnd, newEnd := old+hunk.OldCount, new+hunk.NewCount
 		var removed, added []Line
+		markedHunk := false
 		flush := func() {
-			result = append(result, annotateBlock(removed, added)...)
+			block := annotateBlock(removed, added)
+			if len(block) > 0 && !markedHunk {
+				block[0].HunkStart = true
+				markedHunk = true
+			}
+			result = append(result, block...)
 			removed, added = nil, nil
 		}
 		for i := hunk.Line + 1; old < oldEnd || new < newEnd; i++ {

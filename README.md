@@ -27,7 +27,7 @@ Select a file to read its unified diff, then press `v` to toggle the **annotated
 | --- | --- |
 | `j` / `k`, up/down arrows | Select tree rows or scroll content |
 | `v` | Toggle unified diff / annotated full file |
-| `n` / `p` | Next / previous hunk in diff (no wraparound) |
+| `n` / `p` | Next / previous hunk in either view (no wraparound) |
 | `N` / `P`, Tab / Shift+Tab | Next / previous changed file in either view (no wraparound) |
 | `Enter` | Toggle selected directory or open selected file |
 | `l`, right arrow | Expand directory, enter expanded directory, or open file |
@@ -38,7 +38,7 @@ Select a file to read its unified diff, then press `v` to toggle the **annotated
 | `r` | Refresh file list (also returns from diff) |
 | `q`, `Ctrl+c` | Quit |
 
-In the diff, hunk jumps select the first header strictly below / above the viewport top. Near the end, scrolling stops at the bottom but subsequent jumps advance from the last targeted hunk, so closely spaced final hunks remain navigable. Scrolling manually or resizing resets that target. No hunks means no jump; reaching either hunk or file boundary does nothing. Hunk jumps do nothing in full-file mode. Toggling the same file preserves separate diff and full-file scroll positions, clamped to the available rows when resizing. Switching files retains the view mode but resets both scroll positions, and also works while loading or after an error. Returning to the picker keeps the current file selected and visible; opening from the picker always starts in diff mode. Toggling during loading records the desired mode.
+In the diff, hunk jumps select the first header strictly below / above the viewport top. In full-file mode, they target each hunk's first displayed edit line, including standalone deletions. Targets follow wrapped terminal rows in both views; unavailable annotations have no full-file hunk targets. Near the end, scrolling stops at the bottom but subsequent jumps advance from the last targeted hunk, so closely spaced final hunks remain navigable. Scrolling manually or resizing resets that target. No hunks means no jump; reaching either hunk or file boundary does nothing. Toggling the same file preserves separate diff and full-file scroll positions, clamped to the available rows when resizing. Switching files retains the view mode but resets both scroll positions, and also works while loading or after an error. Returning to the picker keeps the current file selected and visible; opening from the picker always starts in diff mode. Toggling during loading records the desired mode.
 
 Mouse wheel scrolls; clicking a file opens it and clicking a directory toggles it when supported by the terminal. Headers and file rows truncate to terminal width; both content views wrap at terminal-cell boundaries and scroll vertically. Chroma syntax foregrounds are preserved over subtle addition/deletion/replacement backgrounds, including within a syntax token. Unified diff keeps its existing whole-line backgrounds and `+` / `-` markers. Colors follow terminal capabilities and respect `NO_COLOR`. Git queries, syntax highlighting, and annotation alignment run asynchronously with loading, empty, and error states. Both views reuse the same loaded snapshots and syntax tokens; toggling does not requery Git or retokenize, and resizing only rewraps cached highlighted lines.
 
