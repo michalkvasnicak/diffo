@@ -70,11 +70,17 @@ func sourceLines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
+// Result contains independently styled lines with trusted ANSI and the zero-based
+// line positions of hunk headers parsed from the original diff.
+type Result struct {
+	Lines []string
+	Hunks []int
+}
+
 // Lines performs all tokenization and styling before the TUI wraps or renders.
-// Every returned line is independently styled and contains only trusted ANSI.
-func (s *Service) Lines(diff git.Diff) []string {
+func (s *Service) Lines(diff git.Diff) Result {
 	if diff.Text == "" {
-		return nil
+		return Result{}
 	}
 	lines := sourceLines(diff.Text)
 	parsed := make([]diffLine, len(lines))
@@ -87,6 +93,7 @@ func (s *Service) Lines(diff git.Diff) []string {
 			patchCount++
 		}
 	}
+	var hunks []int
 	for i := 0; i < len(lines); {
 		parsed[i] = diffLine{text: lines[i]}
 		match := hunkHeader.FindStringSubmatch(lines[i])
@@ -94,6 +101,7 @@ func (s *Service) Lines(diff git.Diff) []string {
 			i++
 			continue
 		}
+		hunks = append(hunks, i)
 		old, oldCount, oldOK := coordinate(match[1], match[2])
 		new, newCount, newOK := coordinate(match[3], match[4])
 		start := i + 1
@@ -190,7 +198,7 @@ func (s *Service) Lines(diff git.Diff) []string {
 		}
 		result[i] = styled.String()
 	}
-	return result
+	return Result{Lines: result, Hunks: hunks}
 }
 
 func coordinate(start, count string) (int, int, bool) {

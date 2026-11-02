@@ -26,12 +26,16 @@ Select a file to read its unified diff. Deleted files show removed content, untr
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrow keys | Select files or scroll diff |
+| `n` / `p` | Next / previous hunk in diff (no wraparound) |
+| `N` / `P`, Tab / Shift+Tab | Next / previous changed file in diff (no wraparound) |
 | `Enter`, `l`, right arrow | Open selected file |
 | `h`, `Esc`, left arrow | Return to file picker |
 | `PageDown` / `PageUp`, `Ctrl+f` / `Ctrl+b` | Move one page |
 | `g` / `G`, Home / End | Go to start / end |
 | `r` | Refresh file list (also returns from diff) |
 | `q`, `Ctrl+c` | Quit |
+
+In the diff, hunk jumps select the first header strictly below / above the viewport top. Near the end, scrolling stops at the bottom but subsequent jumps advance from the last targeted hunk, so closely spaced final hunks remain navigable. Scrolling manually or resizing resets that target. No hunks means no jump; reaching either hunk or file boundary does nothing. Switching files resets scrolling and also works while loading or after a diff error. Returning to the picker keeps the current file selected and visible.
 
 Mouse wheel scrolls; clicking a file opens it when supported by the terminal. Headers and file rows truncate to terminal width; diffs wrap at terminal-cell boundaries and scroll vertically. Chroma syntax foregrounds are preserved over subtle addition/deletion backgrounds, alongside the `+` / `-` markers. Colors follow terminal capabilities and respect `NO_COLOR`. Git queries and syntax highlighting run asynchronously with loading, empty, and error states. Resizing rewraps the cached highlighted lines.
 
