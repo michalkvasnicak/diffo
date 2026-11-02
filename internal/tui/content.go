@@ -12,13 +12,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ContentLine combines trusted ANSI text with source coordinates and hunk identity.
+// Zero coordinates and hunk IDs mean no corresponding source line or hunk.
+type ContentLine struct {
+	Text    string
+	Old     int
+	New     int
+	Deleted bool
+	Edited  bool
+	Hunk    int
+}
+
 // Content holds trusted ANSI lines prepared once per file, before wrapping.
 // Hunks contains zero-based header positions in Lines; FullHunks contains
 // the first displayed edit line for each mapped hunk in Full.
 type Content struct {
-	Lines     []string
+	Lines     []ContentLine
 	Hunks     []int
-	Full      []string
+	Full      []ContentLine
 	FullHunks []int
 }
 
@@ -63,13 +74,27 @@ func (s *ContentService) Prepare(change git.Diff, file git.File) Content {
 	if needsNew && change.New.Available {
 		newTokens = s.highlighter.Source(change.New.Path, change.New.Text)
 	}
-	result := Content{Lines: make([]string, len(parsed.Lines))}
+	result := Content{Lines: make([]ContentLine, len(parsed.Lines))}
 	result.Full, result.FullHunks = s.annotatedContent(parsed, change, file, oldTokens, newTokens)
 	for _, hunk := range parsed.Hunks {
 		result.Hunks = append(result.Hunks, hunk.Line)
 	}
+	hunk, nextHunk := 0, 0
 	for i, line := range parsed.Lines {
-		result.Lines[i] = s.diffLine(line, oldTokens, newTokens)
+		if nextHunk < len(parsed.Hunks) && parsed.Hunks[nextHunk].Line == i {
+			nextHunk++
+			hunk = nextHunk
+		} else if line.Kind == 0 && !strings.HasPrefix(line.Text, "\\") {
+			hunk = 0
+		}
+		prepared := ContentLine{
+			Text: s.diffLine(line, oldTokens, newTokens), Hunk: hunk,
+			Edited: line.Kind == '+' || line.Kind == '-',
+		}
+		if line.Mapped {
+			prepared.Old, prepared.New = line.Old, line.New
+		}
+		result.Lines[i] = prepared
 	}
 	return result
 }
@@ -95,13 +120,13 @@ func (s *ContentService) diffLine(line diff.Line, oldTokens, newTokens []highlig
 	return base.Render(string(line.Kind)) + s.highlighter.Render(tokens[source], base)
 }
 
-func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, file git.File, oldTokens, newTokens []highlight.Line) ([]string, []int) {
+func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, file git.File, oldTokens, newTokens []highlight.Line) ([]ContentLine, []int) {
 	snapshot, tokens := change.New, newTokens
 	if file.Status == "D" {
 		snapshot, tokens = change.Old, oldTokens
 	}
 	if !snapshot.Available || strings.ContainsRune(snapshot.Text, '\x00') {
-		return s.fullContent(snapshot, tokens), nil
+		return s.fullContent(snapshot, tokens, file.Status == "D"), nil
 	}
 	old := diff.Snapshot{Text: change.Old.Text, Available: change.Old.Available}
 	current := diff.Snapshot{Text: change.New.Text, Available: change.New.Available}
@@ -115,12 +140,12 @@ func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, f
 	}
 	lines, mapped := diff.Annotate(parsed, old, current)
 	if !mapped {
-		return append([]string{"Annotations unavailable; showing snapshot without change backgrounds."}, s.fullContent(snapshot, tokens)...), nil
+		return append([]ContentLine{{Text: "Annotations unavailable; showing snapshot without change backgrounds."}}, s.fullContent(snapshot, tokens, file.Status == "D")...), nil
 	}
 	if len(lines) == 0 {
-		return []string{"Empty file."}, nil
+		return []ContentLine{{Text: "Empty file."}}, nil
 	}
-	result := make([]string, len(lines))
+	result := make([]ContentLine, len(lines))
 	var hunks []int
 	for i, line := range lines {
 		if line.HunkStart {
@@ -144,27 +169,34 @@ func (s *ContentService) annotatedContent(parsed diff.Result, change git.Diff, f
 			spans = append(spans, highlight.Span{Start: changed.Start, End: changed.End, Style: s.changed})
 		}
 		sort.Slice(spans, func(i, j int) bool { return spans[i].Start < spans[j].Start })
-		result[i] = s.highlighter.Render(tokenLine, base, spans...)
+		result[i] = ContentLine{
+			Text: s.highlighter.Render(tokenLine, base, spans...),
+			Old:  line.Old, New: line.New, Deleted: line.Deleted, Edited: line.Edited, Hunk: line.Hunk,
+		}
 	}
 	return result, hunks
 }
 
-func (s *ContentService) fullContent(snapshot git.Snapshot, tokens []highlight.Line) []string {
+func (s *ContentService) fullContent(snapshot git.Snapshot, tokens []highlight.Line, deleted bool) []ContentLine {
 	switch {
 	case !snapshot.Available:
-		return []string{"File content unavailable for this snapshot."}
+		return []ContentLine{{Text: "File content unavailable for this snapshot."}}
 	case strings.ContainsRune(snapshot.Text, '\x00'):
-		return []string{"Binary file; content is not displayed."}
+		return []ContentLine{{Text: "Binary file; content is not displayed."}}
 	case snapshot.Text == "":
-		return []string{"Empty file."}
+		return []ContentLine{{Text: "Empty file."}}
 	}
 	lines := strings.Split(strings.TrimSuffix(snapshot.Text, "\n"), "\n")
+	result := make([]ContentLine, len(lines))
 	for i, line := range lines {
+		text := terminaltext.Display(line)
 		if i < len(tokens) {
-			lines[i] = s.highlighter.Render(tokens[i], lipgloss.NewStyle())
-		} else {
-			lines[i] = terminaltext.Display(line)
+			text = s.highlighter.Render(tokens[i], lipgloss.NewStyle())
+		}
+		result[i] = ContentLine{Text: text, New: i + 1}
+		if deleted {
+			result[i].Old, result[i].New, result[i].Deleted = i+1, 0, true
 		}
 	}
-	return lines
+	return result
 }

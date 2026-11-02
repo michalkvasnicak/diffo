@@ -24,6 +24,8 @@ type AnnotatedLine struct {
 	Added     []Range // Inserted graphemes, including within an existing line.
 	Changed   []Range // Inserted graphemes replacing deleted text.
 	Deleted   bool
+	Edited    bool // Added, deleted, or replaced line, excluding equal anchors.
+	Hunk      int  // One-based hunk ID; zero outside a hunk.
 	HunkStart bool // First displayed edit line of a mapped hunk.
 }
 
@@ -51,7 +53,7 @@ func Annotate(parsed Result, oldSnapshot, newSnapshot Snapshot) ([]AnnotatedLine
 		}
 		return true
 	}
-	for _, hunk := range parsed.Hunks {
+	for hunkIndex, hunk := range parsed.Hunks {
 		oldStart, newStart := hunk.OldStart, hunk.NewStart
 		if hunk.OldCount > 0 {
 			oldStart--
@@ -67,6 +69,9 @@ func Annotate(parsed Result, oldSnapshot, newSnapshot Snapshot) ([]AnnotatedLine
 		markedHunk := false
 		flush := func() {
 			block := annotateBlock(removed, added)
+			for i := range block {
+				block[i].Hunk = hunkIndex + 1
+			}
 			if len(block) > 0 && !markedHunk {
 				block[0].HunkStart = true
 				markedHunk = true
@@ -94,7 +99,9 @@ func Annotate(parsed Result, oldSnapshot, newSnapshot Snapshot) ([]AnnotatedLine
 				new++
 			case ' ':
 				flush()
-				result = append(result, annotatedLine(newLines[new], 0, new+1))
+				context := annotatedLine(newLines[new], 0, new+1)
+				context.Hunk = hunkIndex + 1
+				result = append(result, context)
 				old++
 				new++
 			default:
@@ -124,7 +131,7 @@ func annotateBlock(removed, added []Line) []AnnotatedLine {
 		result := make([]AnnotatedLine, len(removed))
 		for i, line := range removed {
 			result[i] = annotatedLine(line.Text[1:], line.Old, 0)
-			result[i].Deleted = true
+			result[i].Deleted, result[i].Edited = true, true
 		}
 		return result
 	}
@@ -135,6 +142,7 @@ func annotateBlock(removed, added []Line) []AnnotatedLine {
 	}
 	for i, line := range added {
 		result[i] = annotatedLine(line.Text[1:], 0, line.New)
+		result[i].Edited = true
 		newText[i] = result[i].Text
 		if len(removed) == 0 && len(newText[i]) > 0 {
 			result[i].Added = []Range{{Start: 0, End: len(newText[i])}}
@@ -164,6 +172,9 @@ func annotateBlock(removed, added []Line) []AnnotatedLine {
 			new += length
 		case diffmatchpatch.DiffEqual:
 			flush()
+			for i := new; i < new+length; i++ {
+				result[i].Edited = false
+			}
 			old += length
 			new += length
 			oldStart, newStart = old, new

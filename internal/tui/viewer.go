@@ -1,33 +1,25 @@
 package tui
 
 import (
-	"strings"
-
 	"diffo/internal/git"
 	"diffo/internal/terminaltext"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 )
-
-type fileView struct {
-	rows   []string
-	hunks  []int
-	offset int
-}
 
 // viewerModel owns diff/annotated rendering, scrolling, and hunk navigation.
 type viewerModel struct {
-	layout      screenLayout
-	index       int
-	file        git.File
-	loading     bool
-	err         error
-	diff        Content
-	fullContent bool
-	diffView    fileView
-	contentView fileView
-	hunkTarget  int
+	layout       screenLayout
+	index        int
+	file         git.File
+	loading      bool
+	err          error
+	diff         Content
+	fullContent  bool
+	diffView     fileView
+	contentView  fileView
+	hunkTarget   int // Navigation anchor; reset by manual scrolling.
+	selectedHunk int // Stable hunk ID; retained while scrolling or resizing.
 }
 
 func (m *viewerModel) open(index int, file git.File, resetMode bool) {
@@ -38,7 +30,7 @@ func (m *viewerModel) open(index int, file git.File, resetMode bool) {
 	m.loading, m.err = true, nil
 	m.diff = Content{}
 	m.diffView, m.contentView = fileView{}, fileView{}
-	m.hunkTarget = -1
+	m.hunkTarget, m.selectedHunk = -1, 0
 }
 
 func (m *viewerModel) loaded(content Content, err error) {
@@ -113,21 +105,26 @@ func (m *viewerModel) jumpHunk(direction int) {
 	}
 	if direction > 0 {
 		for i, row := range view.hunks {
-			if row > top {
-				m.hunkTarget, view.offset = i, row
-				m.clamp()
+			if row > top || (m.hunkTarget < 0 && row == top) {
+				m.selectHunk(i)
 				return
 			}
 		}
 	} else {
 		for i := len(view.hunks) - 1; i >= 0; i-- {
-			if view.hunks[i] < top {
-				m.hunkTarget, view.offset = i, view.hunks[i]
-				m.clamp()
+			if view.hunks[i] < top || (m.hunkTarget < 0 && view.hunks[i] == top) {
+				m.selectHunk(i)
 				return
 			}
 		}
 	}
+}
+
+func (m *viewerModel) selectHunk(index int) {
+	view := m.activeView()
+	m.hunkTarget, view.offset = index, view.hunks[index]
+	m.selectedHunk = view.rows[view.offset].hunk
+	m.clamp()
 }
 
 func (m *viewerModel) clamp() {
@@ -144,34 +141,11 @@ func (m *viewerModel) activeView() *fileView {
 }
 
 func (m *viewerModel) wrapViews() {
-	m.diffView.rows, m.diffView.hunks = wrapLines(m.diff.Lines, m.diff.Hunks, m.layout.width)
-	m.contentView.rows, m.contentView.hunks = wrapLines(m.diff.Full, m.diff.FullHunks, m.layout.width)
+	diffOffset, contentOffset := m.diffView.offset, m.contentView.offset
+	m.diffView = wrapView(m.diff.Lines, m.diff.Hunks, m.layout.width, false)
+	m.contentView = wrapView(m.diff.Full, m.diff.FullHunks, m.layout.width, true)
+	m.diffView.offset, m.contentView.offset = diffOffset, contentOffset
 	m.clamp()
-}
-
-func wrapLines(lines []string, hunks []int, width int) (rows []string, hunkRows []int) {
-	if width < 1 {
-		return nil, nil
-	}
-	hunk := 0
-	for i, line := range lines {
-		if hunk < len(hunks) && hunks[hunk] == i {
-			hunkRows = append(hunkRows, len(rows))
-			hunk++
-		}
-		// Wrap plain graphemes first, then cut the trusted ANSI line at those
-		// cell boundaries. Cut retains SGR state, so each viewport row stands
-		// alone even when scrolling starts in the middle of a styled token.
-		column := 0
-		for _, plain := range strings.Split(ansi.Hardwrap(ansi.Strip(line), width, true), "\n") {
-			cells := ansi.StringWidth(plain)
-			row := ansi.Cut(line, column, column+cells)
-			// A single wide grapheme may not fit a one-cell terminal.
-			rows = append(rows, ansi.Truncate(row, width, ""))
-			column += cells
-		}
-	}
-	return rows, hunkRows
 }
 
 func (m *viewerModel) view() string {
@@ -198,7 +172,7 @@ func (m *viewerModel) view() string {
 		if len(view.rows) == 0 {
 			body = []string{"No diff; r refreshes the file list."}
 		} else {
-			body = view.rows[view.offset:min(len(view.rows), view.offset+m.layout.bodyHeight())]
+			body = view.visibleRows(m.layout.bodyHeight(), m.selectedHunk)
 		}
 	}
 	return m.layout.render(header, body, help)
