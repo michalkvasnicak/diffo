@@ -151,13 +151,10 @@ func (m *viewerModel) view() string {
 	}
 	header := "DIFF · HEAD → current"
 	if m.fullContent {
-		header = "ANNOTATED FILE · current + deletions"
-		if m.file.Status == "D" {
-			header = "ANNOTATED FILE · HEAD deletions"
-		}
+		header = "FULL"
 	}
-	header += " · " + m.file.Status + " " + terminaltext.SingleLine(m.file.Path)
-	help := "v diff/annotated · n/p hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
+	header += " · " + m.file.Status
+	help := terminaltext.SingleLine(m.file.Path) + " · v diff/full · n/p hunk · N/P file · j/k scroll · h/esc back · r refresh · q quit"
 	var body []string
 	switch {
 	case m.loading:
